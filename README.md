@@ -33,16 +33,6 @@ use {
 }
 ```
 
-### Using [vim-plug](https://github.com/junegunn/vim-plug)
-
-```vim
-Plug 'Faria22/foldsync.nvim'
-
-lua << EOF
-require('foldsync').setup()
-EOF
-```
-
 ## Configuration
 
 The plugin works with default settings, but you can customize it:
