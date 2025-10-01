@@ -114,10 +114,19 @@ function M.save_folds(bufnr)
     end
   end
   
-  -- Get cursor position
-  local cursor_pos = vim.api.nvim_win_get_cursor(0)
-  local cursor_line = cursor_pos[1]
-  local cursor_col = cursor_pos[2]
+  -- Get cursor position from the window displaying this buffer
+  local cursor_line = 1
+  local cursor_col = 0
+  
+  -- Find a window displaying this buffer and get its cursor position
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == bufnr then
+      local cursor_pos = vim.api.nvim_win_get_cursor(win)
+      cursor_line = cursor_pos[1]
+      cursor_col = cursor_pos[2]
+      break
+    end
+  end
   
   -- Get cursor signature for tracking across file changes
   local cursor_signature, cursor_offset = get_cursor_signature(bufnr, cursor_line)
@@ -296,8 +305,8 @@ function M.restore_folds(bufnr)
     return
   end
   
-  -- Apply folds immediately if possible
-  local function apply_folds()
+  -- Apply folds and restore cursor
+  local function apply_folds_and_cursor()
     -- Check if buffer is still valid
     if not vim.api.nvim_buf_is_valid(bufnr) then
       return
@@ -342,26 +351,17 @@ function M.restore_folds(bufnr)
       local line_content = vim.api.nvim_buf_get_lines(bufnr, cursor_line - 1, cursor_line, false)[1] or ''
       cursor_col = math.min(cursor_col, #line_content)
       
-      -- Set cursor position in the current window if it's showing this buffer
-      local current_win = vim.api.nvim_get_current_win()
-      local current_buf = vim.api.nvim_win_get_buf(current_win)
-      if current_buf == bufnr then
-        pcall(vim.api.nvim_win_set_cursor, current_win, {cursor_line, cursor_col})
+      -- Set cursor position for all windows displaying this buffer
+      for _, win in ipairs(vim.api.nvim_list_wins()) do
+        if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr then
+          pcall(vim.api.nvim_win_set_cursor, win, {cursor_line, cursor_col})
+        end
       end
     end
   end
   
-  -- Check if we're in a valid window context for the buffer
-  local current_win = vim.api.nvim_get_current_win()
-  local current_buf = vim.api.nvim_win_get_buf(current_win)
-  
-  if current_buf == bufnr then
-    -- We're in the right context, apply immediately
-    apply_folds()
-  else
-    -- Schedule for next event loop when we'll be in the right context
-    vim.schedule(apply_folds)
-  end
+  -- Schedule the restoration to ensure window is ready
+  vim.schedule(apply_folds_and_cursor)
 end
 
 return M
