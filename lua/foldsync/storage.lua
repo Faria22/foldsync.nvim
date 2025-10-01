@@ -66,15 +66,16 @@ function M.save_folds(bufnr)
   
   local folds = {}
   local line_count = vim.api.nvim_buf_line_count(bufnr)
+  local lnum = 1
   
-  -- Iterate through all lines to find folds
-  for lnum = 1, line_count do
-    local fold_level = vim.fn.foldlevel(lnum)
+  -- Efficiently iterate through closed folds only
+  while lnum <= line_count do
     local fold_closed = vim.fn.foldclosed(lnum)
     
     -- If this line starts a closed fold
     if fold_closed == lnum then
       local fold_end = vim.fn.foldclosedend(lnum)
+      local fold_level = vim.fn.foldlevel(lnum)
       local signature = get_fold_signature(bufnr, lnum, fold_end)
       
       table.insert(folds, {
@@ -83,6 +84,11 @@ function M.save_folds(bufnr)
         signature = signature,
         level = fold_level
       })
+      
+      -- Skip to the end of this fold
+      lnum = fold_end + 1
+    else
+      lnum = lnum + 1
     end
   end
   
@@ -101,7 +107,7 @@ function M.save_folds(bufnr)
 end
 
 -- Find where a fold moved to based on its signature
-local function find_fold_by_signature(bufnr, signature, old_start)
+local function find_fold_by_signature(bufnr, signature, old_start, old_end)
   local line_count = vim.api.nvim_buf_line_count(bufnr)
   
   -- First, try the original location (±5 lines)
@@ -109,29 +115,62 @@ local function find_fold_by_signature(bufnr, signature, old_start)
   local search_end = math.min(line_count, old_start + 5)
   
   for lnum = search_start, search_end do
-    local fold_start = vim.fn.foldclosed(lnum)
-    if fold_start > 0 then
-      local fold_end = vim.fn.foldclosedend(lnum)
+    local fold_level = vim.fn.foldlevel(lnum)
+    if fold_level > 0 then
+      -- Find the actual fold boundaries at this line
+      local fold_start = lnum
+      local fold_end = lnum
+      
+      -- Find fold start
+      while fold_start > 1 and vim.fn.foldlevel(fold_start - 1) >= fold_level do
+        fold_start = fold_start - 1
+      end
+      
+      -- Find fold end
+      while fold_end < line_count and vim.fn.foldlevel(fold_end + 1) >= fold_level do
+        fold_end = fold_end + 1
+      end
+      
+      -- Check if this fold matches our signature
       local current_signature = get_fold_signature(bufnr, fold_start, fold_end)
       if current_signature == signature then
-        return fold_start
+        return fold_start, fold_end
       end
     end
   end
   
   -- If not found nearby, search the entire buffer
-  for lnum = 1, line_count do
-    local fold_start = vim.fn.foldclosed(lnum)
-    if fold_start > 0 then
-      local fold_end = vim.fn.foldclosedend(lnum)
+  local lnum = 1
+  while lnum <= line_count do
+    local fold_level = vim.fn.foldlevel(lnum)
+    if fold_level > 0 then
+      local fold_start = lnum
+      local fold_end = lnum
+      
+      -- Find fold start
+      while fold_start > 1 and vim.fn.foldlevel(fold_start - 1) >= fold_level do
+        fold_start = fold_start - 1
+      end
+      
+      -- Find fold end
+      while fold_end < line_count and vim.fn.foldlevel(fold_end + 1) >= fold_level do
+        fold_end = fold_end + 1
+      end
+      
+      -- Check if this fold matches our signature
       local current_signature = get_fold_signature(bufnr, fold_start, fold_end)
       if current_signature == signature then
-        return fold_start
+        return fold_start, fold_end
       end
+      
+      -- Skip to after this fold
+      lnum = fold_end + 1
+    else
+      lnum = lnum + 1
     end
   end
   
-  return nil
+  return nil, nil
 end
 
 -- Restore folds for a buffer
@@ -159,27 +198,38 @@ function M.restore_folds(bufnr)
     return
   end
   
-  -- Wait a bit for folds to be computed
-  vim.defer_fn(function()
+  -- Schedule restoration for when folds are ready
+  vim.schedule(function()
+    -- Check if buffer is still valid
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+    
+    -- Save current view and cursor position
+    local save_view = vim.fn.winsaveview()
+    
     -- Close folds based on saved state
     for _, fold in ipairs(data.folds) do
       -- Try to find the fold by signature (it may have moved)
-      local found_line = find_fold_by_signature(bufnr, fold.signature, fold.start)
+      local found_start, found_end = find_fold_by_signature(bufnr, fold.signature, fold.start, fold['end'])
       
-      if found_line then
-        -- Close the fold at the found location
-        vim.fn.setpos('.', {bufnr, found_line, 1, 0})
-        vim.cmd('normal! zc')
+      if found_start and found_end then
+        -- Close the fold using fold commands
+        vim.api.nvim_win_set_cursor(0, {found_start, 0})
+        vim.cmd('silent! normal! zc')
       elseif fold.start <= vim.api.nvim_buf_line_count(bufnr) then
         -- Fallback: try the original line if signature search failed
-        local fold_exists = vim.fn.foldclosed(fold.start)
-        if fold_exists == -1 and vim.fn.foldlevel(fold.start) > 0 then
-          vim.fn.setpos('.', {bufnr, fold.start, 1, 0})
-          vim.cmd('normal! zc')
+        local fold_level = vim.fn.foldlevel(fold.start)
+        if fold_level > 0 then
+          vim.api.nvim_win_set_cursor(0, {fold.start, 0})
+          vim.cmd('silent! normal! zc')
         end
       end
     end
-  end, 100)
+    
+    -- Restore original view and cursor position
+    vim.fn.winrestview(save_view)
+  end)
 end
 
 return M
