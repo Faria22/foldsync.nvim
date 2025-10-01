@@ -1,6 +1,6 @@
 # Example: How foldsync.nvim Works
 
-This document demonstrates how foldsync.nvim tracks and restores folds intelligently.
+This document demonstrates how foldsync.nvim tracks and restores folds and cursor position intelligently.
 
 ## Testing the Plugin
 
@@ -73,7 +73,7 @@ Open the file again in Neovim:
 nvim test.lua
 ```
 
-**Result**: The folds will be restored at their correct locations, even though the line numbers changed! The plugin uses content-based signatures to find where each fold moved to.
+**Result**: The folds will be restored at their correct locations, even though the line numbers changed! The cursor position will also be restored to where it was, tracking the content if the file has changed. The plugin uses content-based signatures to find where each fold and cursor position moved to.
 
 ## How Content-Based Tracking Works
 
@@ -84,24 +84,30 @@ For each closed fold, the plugin:
 2. Hashes the last 3 lines of the fold
 3. Combines these hashes into a unique signature
 
+For the cursor position, the plugin:
+1. Hashes 2 lines before the cursor
+2. Hashes the cursor line
+3. Hashes 2 lines after the cursor
+4. Combines these hashes into a unique signature
+
 ### Smart Restoration
 
-When restoring folds:
-1. First checks if the fold is still at its original location (±5 lines)
+When restoring folds and cursor position:
+1. First checks if the fold/cursor is still at its original location (±5 lines)
 2. If not found, searches the entire buffer for matching content
 3. Falls back to the original line number if signature matching fails
 
 ### Example Scenarios
 
 **Scenario 1: Lines added above**
-- Original fold at lines 10-20
+- Original fold at lines 10-20, cursor at line 15
 - 5 lines added at line 1
-- Plugin finds fold at lines 15-25 using content signature ✓
+- Plugin finds fold at lines 15-25 and cursor at line 20 using content signatures ✓
 
 **Scenario 2: Lines removed above**
-- Original fold at lines 10-20
+- Original fold at lines 10-20, cursor at line 12
 - 3 lines removed at line 5
-- Plugin finds fold at lines 7-17 using content signature ✓
+- Plugin finds fold at lines 7-17 and cursor at line 9 using content signatures ✓
 
 **Scenario 3: Fold content modified**
 - Original fold content changed
@@ -111,7 +117,7 @@ When restoring folds:
 **Scenario 4: File reordered (e.g., by git rebase)**
 - Functions moved to different parts of the file
 - Plugin searches entire buffer for matching signatures
-- Restores folds at new locations ✓
+- Restores folds and cursor position at new locations ✓
 
 ## Advanced Usage
 

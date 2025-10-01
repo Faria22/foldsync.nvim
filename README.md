@@ -6,6 +6,7 @@ Persistent, smart fold restoration for Neovim
 - **Persistent folds**: Automatically saves and restores fold states across Neovim sessions
 - **Smart fold tracking**: Uses content-based signatures to track folds even after file edits by other programs or git operations
 - **Intelligent fold detection**: Detects when folds have moved in the file and restores them at their new location
+- **Cursor position tracking**: Saves and restores cursor position, tracking it across file changes using content signatures
 - **Zero configuration**: Works out of the box with sensible defaults
 - **Lightweight**: Written entirely in Lua with minimal dependencies
 
@@ -50,7 +51,9 @@ foldsync.nvim works automatically once installed. It will:
 
 1. Save fold states when you leave a buffer (`BufWinLeave`)
 2. Restore fold states when you open a buffer (`BufWinEnter`)
-3. Track folds using content signatures, so they're restored correctly even if the file was edited externally
+3. Save cursor position when you leave a buffer
+4. Restore cursor position when you open a buffer
+5. Track folds and cursor position using content signatures, so they're restored correctly even if the file was edited externally
 
 ### Commands
 
@@ -64,18 +67,18 @@ The plugin provides several commands:
 
 ### How It Works
 
-foldsync.nvim uses a smart content-based approach to track folds:
+foldsync.nvim uses a smart content-based approach to track folds and cursor position:
 
-1. **Content Signatures**: When saving folds, the plugin creates a signature based on the first and last few lines of each fold
-2. **Intelligent Matching**: When restoring, it first checks if the fold is still at its original location (±5 lines)
+1. **Content Signatures**: When saving, the plugin creates a signature based on the surrounding lines of each fold and the cursor position
+2. **Intelligent Matching**: When restoring, it first checks if items are still at their original location (±5 lines)
 3. **Full Search**: If not found nearby, it searches the entire buffer for matching content
 4. **Fallback**: If signature matching fails, it falls back to the original line number
 
-This approach ensures folds are correctly restored even after:
+This approach ensures folds and cursor position are correctly restored even after:
 - Editing the file in other editors
 - Git operations (merge, rebase, pull, etc.)
 - Automated code formatting
-- Adding/removing lines above the fold
+- Adding/removing lines above the fold or cursor position
 
 For a detailed example with step-by-step instructions, see [EXAMPLE.md](EXAMPLE.md).
 
