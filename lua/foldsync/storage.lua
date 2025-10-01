@@ -173,6 +173,19 @@ local function find_fold_by_signature(bufnr, signature, old_start, old_end)
   return nil, nil
 end
 
+-- Close a fold at a specific line efficiently
+local function close_fold_at_line(bufnr, lnum)
+  -- Use vim's fold API directly without cursor movement
+  -- This avoids the overhead of normal mode commands
+  local current_win = vim.api.nvim_get_current_win()
+  local current_buf = vim.api.nvim_win_get_buf(current_win)
+  
+  if current_buf == bufnr then
+    -- We're in the right buffer, use foldclose directly
+    pcall(vim.cmd, string.format('silent! %dfoldclose', lnum))
+  end
+end
+
 -- Restore folds for a buffer
 function M.restore_folds(bufnr)
   local storage_file = get_storage_file(bufnr)
@@ -198,15 +211,12 @@ function M.restore_folds(bufnr)
     return
   end
   
-  -- Schedule restoration for when folds are ready
-  vim.schedule(function()
+  -- Apply folds immediately if possible
+  local function apply_folds()
     -- Check if buffer is still valid
     if not vim.api.nvim_buf_is_valid(bufnr) then
       return
     end
-    
-    -- Save current view and cursor position
-    local save_view = vim.fn.winsaveview()
     
     -- Close folds based on saved state
     for _, fold in ipairs(data.folds) do
@@ -214,22 +224,29 @@ function M.restore_folds(bufnr)
       local found_start, found_end = find_fold_by_signature(bufnr, fold.signature, fold.start, fold['end'])
       
       if found_start and found_end then
-        -- Close the fold using fold commands
-        vim.api.nvim_win_set_cursor(0, {found_start, 0})
-        vim.cmd('silent! normal! zc')
+        -- Close the fold using efficient foldclose command
+        close_fold_at_line(bufnr, found_start)
       elseif fold.start <= vim.api.nvim_buf_line_count(bufnr) then
         -- Fallback: try the original line if signature search failed
         local fold_level = vim.fn.foldlevel(fold.start)
         if fold_level > 0 then
-          vim.api.nvim_win_set_cursor(0, {fold.start, 0})
-          vim.cmd('silent! normal! zc')
+          close_fold_at_line(bufnr, fold.start)
         end
       end
     end
-    
-    -- Restore original view and cursor position
-    vim.fn.winrestview(save_view)
-  end)
+  end
+  
+  -- Check if we're in a valid window context for the buffer
+  local current_win = vim.api.nvim_get_current_win()
+  local current_buf = vim.api.nvim_win_get_buf(current_win)
+  
+  if current_buf == bufnr then
+    -- We're in the right context, apply immediately
+    apply_folds()
+  else
+    -- Schedule for next event loop when we'll be in the right context
+    vim.schedule(apply_folds)
+  end
 end
 
 return M
