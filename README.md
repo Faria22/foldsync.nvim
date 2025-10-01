@@ -77,6 +77,8 @@ This approach ensures folds are correctly restored even after:
 - Automated code formatting
 - Adding/removing lines above the fold
 
+For a detailed example with step-by-step instructions, see [EXAMPLE.md](EXAMPLE.md).
+
 ## Storage
 
 Fold data is stored in JSON format at:
