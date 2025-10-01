@@ -43,6 +43,28 @@ local function get_fold_signature(bufnr, line_start, line_end)
   return table.concat(signature, ',')
 end
 
+-- Get signature for cursor position (context lines around cursor)
+local function get_cursor_signature(bufnr, line_num)
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  
+  -- Get 2 lines before, current line, and 2 lines after for context
+  local start_line = math.max(1, line_num - 2)
+  local end_line = math.min(line_count, line_num + 2)
+  
+  local lines = vim.api.nvim_buf_get_lines(bufnr, start_line - 1, end_line, false)
+  
+  -- Hash all context lines and include relative position
+  local signature = {}
+  for i, line in ipairs(lines) do
+    table.insert(signature, hash_line(line))
+  end
+  
+  -- Also store the relative offset to indicate which line is the cursor line
+  local cursor_offset = line_num - start_line
+  
+  return table.concat(signature, ','), cursor_offset
+end
+
 -- Get storage file path for a buffer
 local function get_storage_file(bufnr)
   local filepath = vim.api.nvim_buf_get_name(bufnr)
@@ -92,10 +114,24 @@ function M.save_folds(bufnr)
     end
   end
   
+  -- Get cursor position
+  local cursor_pos = vim.api.nvim_win_get_cursor(0)
+  local cursor_line = cursor_pos[1]
+  local cursor_col = cursor_pos[2]
+  
+  -- Get cursor signature for tracking across file changes
+  local cursor_signature, cursor_offset = get_cursor_signature(bufnr, cursor_line)
+  
   -- Save to file
   local data = {
     filepath = vim.api.nvim_buf_get_name(bufnr),
     folds = folds,
+    cursor = {
+      line = cursor_line,
+      col = cursor_col,
+      signature = cursor_signature,
+      offset = cursor_offset
+    },
     timestamp = os.time()
   }
   
@@ -173,6 +209,55 @@ local function find_fold_by_signature(bufnr, signature, old_start, old_end)
   return nil, nil
 end
 
+-- Find where cursor line moved to based on its signature
+local function find_cursor_by_signature(bufnr, signature, cursor_offset, old_line)
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  
+  -- First, try the original location (±5 lines)
+  local search_start = math.max(1, old_line - 5)
+  local search_end = math.min(line_count, old_line + 5)
+  
+  for lnum = search_start, search_end do
+    -- Calculate the context window for this potential cursor position
+    local context_start = math.max(1, lnum - 2)
+    local context_end = math.min(line_count, lnum + 2)
+    
+    -- Generate signature for this position
+    local lines = vim.api.nvim_buf_get_lines(bufnr, context_start - 1, context_end, false)
+    local sig_parts = {}
+    for _, line in ipairs(lines) do
+      table.insert(sig_parts, hash_line(line))
+    end
+    local current_signature = table.concat(sig_parts, ',')
+    
+    -- Check if signatures match
+    if current_signature == signature then
+      return lnum
+    end
+  end
+  
+  -- If not found nearby, search the entire buffer
+  for lnum = 1, line_count do
+    local context_start = math.max(1, lnum - 2)
+    local context_end = math.min(line_count, lnum + 2)
+    
+    -- Generate signature for this position
+    local lines = vim.api.nvim_buf_get_lines(bufnr, context_start - 1, context_end, false)
+    local sig_parts = {}
+    for _, line in ipairs(lines) do
+      table.insert(sig_parts, hash_line(line))
+    end
+    local current_signature = table.concat(sig_parts, ',')
+    
+    -- Check if signatures match
+    if current_signature == signature then
+      return lnum
+    end
+  end
+  
+  return nil
+end
+
 -- Close a fold at a specific line efficiently
 local function close_fold_at_line(bufnr, lnum)
   -- Use vim's fold API directly without cursor movement
@@ -232,6 +317,36 @@ function M.restore_folds(bufnr)
         if fold_level > 0 then
           close_fold_at_line(bufnr, fold.start)
         end
+      end
+    end
+    
+    -- Restore cursor position if saved
+    if data.cursor then
+      local cursor_line = data.cursor.line
+      local cursor_col = data.cursor.col
+      
+      -- Try to find where the cursor line moved to using signature
+      if data.cursor.signature then
+        local found_line = find_cursor_by_signature(bufnr, data.cursor.signature, data.cursor.offset, cursor_line)
+        if found_line then
+          cursor_line = found_line
+        end
+      end
+      
+      -- Ensure cursor position is within buffer bounds
+      local line_count = vim.api.nvim_buf_line_count(bufnr)
+      cursor_line = math.min(cursor_line, line_count)
+      cursor_line = math.max(1, cursor_line)
+      
+      -- Get the actual line length to ensure column is valid
+      local line_content = vim.api.nvim_buf_get_lines(bufnr, cursor_line - 1, cursor_line, false)[1] or ''
+      cursor_col = math.min(cursor_col, #line_content)
+      
+      -- Set cursor position in the current window if it's showing this buffer
+      local current_win = vim.api.nvim_get_current_win()
+      local current_buf = vim.api.nvim_win_get_buf(current_win)
+      if current_buf == bufnr then
+        pcall(vim.api.nvim_win_set_cursor, current_win, {cursor_line, cursor_col})
       end
     end
   end
