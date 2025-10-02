@@ -53,14 +53,29 @@ local function get_cursor_signature(bufnr, line_num)
   
   local lines = vim.api.nvim_buf_get_lines(bufnr, start_line - 1, end_line, false)
   
+  -- Get debug flag from main module if available
+  local debug = false
+  local ok, foldsync = pcall(require, 'foldsync')
+  if ok and foldsync.config and foldsync.config.debug then
+    debug = true
+  end
+  
   -- Hash all context lines and include relative position
   local signature = {}
   for i, line in ipairs(lines) do
-    table.insert(signature, hash_line(line))
+    local hash = hash_line(line)
+    table.insert(signature, hash)
+    if debug then
+      print(string.format('[foldsync]   Line %d: "%s" -> hash %d', start_line + i - 1, line:sub(1, 40), hash))
+    end
   end
   
   -- Also store the relative offset to indicate which line is the cursor line
   local cursor_offset = line_num - start_line
+  
+  if debug then
+    print(string.format('[foldsync] Cursor signature for line %d: offset=%d, num_lines=%d', line_num, cursor_offset, #lines))
+  end
   
   return table.concat(signature, ','), cursor_offset
 end
@@ -242,12 +257,16 @@ local function find_cursor_by_signature(bufnr, signature, cursor_offset, old_lin
   end
   
   if debug then
-    print(string.format('[foldsync] Finding cursor: old_line=%d, signature=%s', old_line, signature:sub(1, 30) .. '...'))
+    print(string.format('[foldsync] Finding cursor: old_line=%d, signature=%s', old_line, signature:sub(1, 50)))
   end
   
   -- First, try the original location (±5 lines)
   local search_start = math.max(1, old_line - 5)
   local search_end = math.min(line_count, old_line + 5)
+  
+  if debug then
+    print(string.format('[foldsync] Searching nearby: lines %d to %d', search_start, search_end))
+  end
   
   for lnum = search_start, search_end do
     -- Calculate the context window for this potential cursor position
