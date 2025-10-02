@@ -131,6 +131,18 @@ function M.save_folds(bufnr)
   -- Get cursor signature for tracking across file changes
   local cursor_signature, cursor_offset = get_cursor_signature(bufnr, cursor_line)
   
+  -- Get debug flag from main module if available
+  local debug = false
+  local ok, foldsync = pcall(require, 'foldsync')
+  if ok and foldsync.config and foldsync.config.debug then
+    debug = true
+  end
+  
+  if debug then
+    print(string.format('[foldsync] Saving cursor at line %d, col %d (offset=%d, sig=%s)', 
+      cursor_line, cursor_col, cursor_offset, cursor_signature:sub(1, 30) .. '...'))
+  end
+  
   -- Save to file
   local data = {
     filepath = vim.api.nvim_buf_get_name(bufnr),
@@ -222,6 +234,17 @@ end
 local function find_cursor_by_signature(bufnr, signature, cursor_offset, old_line)
   local line_count = vim.api.nvim_buf_line_count(bufnr)
   
+  -- Get debug flag from main module if available
+  local debug = false
+  local ok, foldsync = pcall(require, 'foldsync')
+  if ok and foldsync.config and foldsync.config.debug then
+    debug = true
+  end
+  
+  if debug then
+    print(string.format('[foldsync] Finding cursor: old_line=%d, signature=%s', old_line, signature:sub(1, 30) .. '...'))
+  end
+  
   -- First, try the original location (±5 lines)
   local search_start = math.max(1, old_line - 5)
   local search_end = math.min(line_count, old_line + 5)
@@ -241,8 +264,15 @@ local function find_cursor_by_signature(bufnr, signature, cursor_offset, old_lin
     
     -- Check if signatures match
     if current_signature == signature then
+      if debug then
+        print(string.format('[foldsync] Cursor found nearby at line %d', lnum))
+      end
       return lnum
     end
+  end
+  
+  if debug then
+    print('[foldsync] Cursor not found nearby, searching entire buffer...')
   end
   
   -- If not found nearby, search the entire buffer
@@ -260,8 +290,15 @@ local function find_cursor_by_signature(bufnr, signature, cursor_offset, old_lin
     
     -- Check if signatures match
     if current_signature == signature then
+      if debug then
+        print(string.format('[foldsync] Cursor found in full search at line %d', lnum))
+      end
       return lnum
     end
+  end
+  
+  if debug then
+    print('[foldsync] Cursor not found, using fallback')
   end
   
   return nil
@@ -334,11 +371,29 @@ function M.restore_folds(bufnr)
       local cursor_line = data.cursor.line
       local cursor_col = data.cursor.col
       
+      -- Get debug flag from main module if available
+      local debug = false
+      local ok, foldsync = pcall(require, 'foldsync')
+      if ok and foldsync.config and foldsync.config.debug then
+        debug = true
+      end
+      
+      if debug then
+        print(string.format('[foldsync] Restoring cursor from line %d, col %d', cursor_line, cursor_col))
+      end
+      
       -- Try to find where the cursor line moved to using signature
       if data.cursor.signature then
         local found_line = find_cursor_by_signature(bufnr, data.cursor.signature, data.cursor.offset, cursor_line)
         if found_line then
+          if debug then
+            print(string.format('[foldsync] Cursor tracked from line %d to line %d', cursor_line, found_line))
+          end
           cursor_line = found_line
+        else
+          if debug then
+            print(string.format('[foldsync] Cursor tracking failed, using original line %d', cursor_line))
+          end
         end
       end
       
@@ -350,6 +405,10 @@ function M.restore_folds(bufnr)
       -- Get the actual line length to ensure column is valid
       local line_content = vim.api.nvim_buf_get_lines(bufnr, cursor_line - 1, cursor_line, false)[1] or ''
       cursor_col = math.min(cursor_col, #line_content)
+      
+      if debug then
+        print(string.format('[foldsync] Setting cursor to line %d, col %d', cursor_line, cursor_col))
+      end
       
       -- Set cursor position for all windows displaying this buffer
       for _, win in ipairs(vim.api.nvim_list_wins()) do
