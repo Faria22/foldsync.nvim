@@ -361,8 +361,59 @@ function M.restore_folds(bufnr)
     return
   end
   
-  -- Apply folds and restore cursor
-  local function apply_folds_and_cursor()
+  -- Restore cursor position immediately (before folds to avoid delay)
+  if data.cursor then
+    local cursor_line = data.cursor.line
+    local cursor_col = data.cursor.col
+    
+    -- Get debug flag from main module if available
+    local debug = false
+    local ok, foldsync = pcall(require, 'foldsync')
+    if ok and foldsync.config and foldsync.config.debug then
+      debug = true
+    end
+    
+    if debug then
+      print(string.format('[foldsync] Restoring cursor from line %d, col %d', cursor_line, cursor_col))
+    end
+    
+    -- Try to find where the cursor line moved to using signature
+    if data.cursor.signature then
+      local found_line = find_cursor_by_signature(bufnr, data.cursor.signature, data.cursor.offset, cursor_line)
+      if found_line then
+        if debug then
+          print(string.format('[foldsync] Cursor tracked from line %d to line %d', cursor_line, found_line))
+        end
+        cursor_line = found_line
+      else
+        if debug then
+          print(string.format('[foldsync] Cursor tracking failed, using original line %d', cursor_line))
+        end
+      end
+    end
+    
+    -- Ensure cursor position is within buffer bounds
+    local line_count = vim.api.nvim_buf_line_count(bufnr)
+    cursor_line = math.min(cursor_line, line_count)
+    cursor_line = math.max(1, cursor_line)
+    
+    -- Get the actual line length to ensure column is valid
+    local line_content = vim.api.nvim_buf_get_lines(bufnr, cursor_line - 1, cursor_line, false)[1] or ''
+    cursor_col = math.min(cursor_col, #line_content)
+    
+    if debug then
+      print(string.format('[foldsync] Setting cursor to line %d, col %d', cursor_line, cursor_col))
+    end
+    
+    -- Set cursor position immediately for current window
+    local current_win = vim.api.nvim_get_current_win()
+    if vim.api.nvim_win_is_valid(current_win) and vim.api.nvim_win_get_buf(current_win) == bufnr then
+      pcall(vim.api.nvim_win_set_cursor, current_win, {cursor_line, cursor_col})
+    end
+  end
+  
+  -- Apply folds in scheduled callback to avoid timing issues
+  local function apply_folds()
     -- Check if buffer is still valid
     if not vim.api.nvim_buf_is_valid(bufnr) then
       return
@@ -384,62 +435,10 @@ function M.restore_folds(bufnr)
         end
       end
     end
-    
-    -- Restore cursor position if saved
-    if data.cursor then
-      local cursor_line = data.cursor.line
-      local cursor_col = data.cursor.col
-      
-      -- Get debug flag from main module if available
-      local debug = false
-      local ok, foldsync = pcall(require, 'foldsync')
-      if ok and foldsync.config and foldsync.config.debug then
-        debug = true
-      end
-      
-      if debug then
-        print(string.format('[foldsync] Restoring cursor from line %d, col %d', cursor_line, cursor_col))
-      end
-      
-      -- Try to find where the cursor line moved to using signature
-      if data.cursor.signature then
-        local found_line = find_cursor_by_signature(bufnr, data.cursor.signature, data.cursor.offset, cursor_line)
-        if found_line then
-          if debug then
-            print(string.format('[foldsync] Cursor tracked from line %d to line %d', cursor_line, found_line))
-          end
-          cursor_line = found_line
-        else
-          if debug then
-            print(string.format('[foldsync] Cursor tracking failed, using original line %d', cursor_line))
-          end
-        end
-      end
-      
-      -- Ensure cursor position is within buffer bounds
-      local line_count = vim.api.nvim_buf_line_count(bufnr)
-      cursor_line = math.min(cursor_line, line_count)
-      cursor_line = math.max(1, cursor_line)
-      
-      -- Get the actual line length to ensure column is valid
-      local line_content = vim.api.nvim_buf_get_lines(bufnr, cursor_line - 1, cursor_line, false)[1] or ''
-      cursor_col = math.min(cursor_col, #line_content)
-      
-      if debug then
-        print(string.format('[foldsync] Setting cursor to line %d, col %d', cursor_line, cursor_col))
-      end
-      
-      -- Set cursor position for all windows displaying this buffer
-      for _, win in ipairs(vim.api.nvim_list_wins()) do
-        if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr then
-          pcall(vim.api.nvim_win_set_cursor, win, {cursor_line, cursor_col})
-        end
-      end
-    end
   end
   
-  -- Schedule the restoration to ensure window is ready
-  vim.schedule(apply_folds_and_cursor)
+  -- Schedule fold restoration to ensure fold structure is ready
+  vim.schedule(apply_folds)
 end
 
 return M
