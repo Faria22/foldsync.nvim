@@ -7,15 +7,16 @@ vim.g.loaded_foldsync = 1
 -- Create autocommands for fold persistence
 local group = vim.api.nvim_create_augroup('Foldsync', { clear = true })
 
--- Restore folds when opening a buffer
 vim.api.nvim_create_autocmd('BufWinEnter', {
   group = group,
   pattern = '*',
   callback = function()
-    -- Only restore if foldmethod is set
-    if vim.wo.foldmethod ~= 'manual' and vim.wo.foldmethod ~= '' then
-      require('foldsync').restore()
+    -- Skip buffers without a foldmethod
+    if vim.wo.foldmethod == '' then
+      return
     end
+
+    require('foldsync').restore()
   end,
 })
 
@@ -24,10 +25,12 @@ vim.api.nvim_create_autocmd('BufWinLeave', {
   group = group,
   pattern = '*',
   callback = function()
-    -- Only save if foldmethod is set
-    if vim.wo.foldmethod ~= 'manual' and vim.wo.foldmethod ~= '' then
-      require('foldsync').save()
+    -- Skip buffers without a foldmethod
+    if vim.wo.foldmethod == '' then
+      return
     end
+
+    require('foldsync').save()
   end,
 })
 
@@ -36,14 +39,16 @@ vim.api.nvim_create_autocmd('VimLeave', {
   group = group,
   pattern = '*',
   callback = function()
+    local ok, foldsync = pcall(require, 'foldsync')
+    if not ok or not foldsync.config.enabled then
+      return
+    end
+
     -- Save all buffers
+    local storage = require('foldsync.storage')
     for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_loaded(bufnr) then
-        local ok, foldsync = pcall(require, 'foldsync')
-        if ok then
-          local storage = require('foldsync.storage')
-          storage.save_folds(bufnr)
-        end
+        storage.save_folds(bufnr)
       end
     end
   end,
